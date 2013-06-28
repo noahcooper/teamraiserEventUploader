@@ -1,0 +1,890 @@
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js" ></script>
+<script>
+/*
+ * Version: 1.0 (28-JUN-2013)
+ */
+
+/* the API username and password for the organization */
+var apiUserName = 'myusername', 
+apiPassword = 'mypassword', 
+
+/* ****************************************** */
+/* no need to change anything below this line */
+/* ****************************************** */
+eventUploadXmlString, 
+uploadContainsErrors = false, 
+uploadRowsInError = false, 
+numRetries = 0, 
+progressTimers = [];
+
+$.noConflict();
+
+(function($) {
+  var preventDefaultNormalized = function(e) {
+    e.cancelBubble = true;
+    e.returnValue  = false;
+    if(e.stopPropagation) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, 
+  
+  /* convert a string in CSV format to a multi-dimensional array */
+  csvToArray = function(strData) {
+    var strDelimiter = ',', 
+    objPattern = new RegExp(("(\\" + strDelimiter + "|\\r?\\n|\\r|^)" + "(?:\"([^\"]*(?:\"\"[^\"]*)*)\"|" + "([^\"\\" + strDelimiter + "\\r\\n]*))"), "gi"), 
+    arrData = [ [] ], 
+    arrMatches = null;
+    while(arrMatches = objPattern.exec(strData)) {
+      var strMatchedDelimiter = arrMatches[1], 
+      strMatchedValue;
+      if(strMatchedDelimiter.length && strMatchedDelimiter != strDelimiter) {
+        arrData.push([]);
+      }
+      if(arrMatches[2]) {
+        strMatchedValue = arrMatches[2].replace(new RegExp("\"\"", "g"), "\"");
+      }
+      else {
+        strMatchedValue = arrMatches[3];
+      }
+      arrData[arrData.length - 1].push(strMatchedValue);
+    }
+    return(arrData);
+  }, 
+  
+  /* all columns that are allowed and required */
+  uploadColumns = [
+    {
+      name: 'FR_ID', 
+      desc: 'The ID of the TeamRaiser to be updated. Only applicable when updating existing events.', 
+      validationDesc: 'Valid fr_id of an existing event.', 
+      requiredExisting: true
+    }, 
+    {
+      name: 'EVENT_TITLE', 
+      desc: 'The internal name of the TeamRaiser. It must be unique.', 
+      requiredNew: true
+    }, 
+    {
+      name: 'EVENT_USER_TITLE', 
+      desc: 'The public title of the TeamRaiser. Also used in the page customization as the "Event Title:" field.'
+    }, 
+    {
+      name: 'EVENT_DATE', 
+      desc: 'The date or dates of the event in any format. Used in the page customization as the "Event Date/Time:" field.'
+    }, 
+    {
+      name: 'EVENT_DATE_MONTH', 
+      desc: 'The month when the event occurs in numeric (MM) format. Used to set the "Event Date:" field on the Event Information tab.', 
+      validationDesc: 'A number from 1 to 12.', 
+      requiredNew: true
+    }, 
+    {
+      name: 'EVENT_DATE_DAY', 
+      desc: 'The day of the month when the event occurs in numeric (DD) format. Used to set the "Event Date:" field on the Event Information tab.', 
+      validationDesc: 'A number from 1 to 31.', 
+      requiredNew: true
+    }, 
+    {
+      name: 'EVENT_DATE_YEAR', 
+      desc: 'The year when the event occurs in numeric (YYYY) format. Used to set the "Event Date:" field on the Event Information tab.', 
+      validationDesc: 'Valid 4 digit year.', 
+      requiredNew: true
+    }, 
+    {
+      name: 'EVENT_LOCATION', 
+      desc: 'The location of the event. Used to set the "Location Name:" field of the event record. Also used for page customization as the "Event Location:" field.'
+    }, 
+    {
+      name: 'EVENT_LOCATION_STREET1', 
+      desc: 'The street address of the event. Used to set the "[[T6:[[M0:friendraiser_admin:fr_location_details_street_address_label]]]]" field of the event record.'
+    }, 
+    {
+      name: 'EVENT_LOCATION_CITY', 
+      desc: 'The city where the event takes place. Used to set the "City:" field of the event record. Also used for page customization as the "Event City:" field.'
+    }, 
+    {
+      name: 'EVENT_LOCATION_STATE', 
+      desc: 'The state where the event takes place. Used to set the "State:" field of the event record. Also used for page customization as the "Event State:" field.'
+    }, 
+    {
+      name: 'EVENT_LOCATION_ZIP', 
+      desc: 'The ZIP code of the location where the event takes place. Used to set the "ZIP Code:" field of the event record.'
+    }, 
+    {
+      name: 'EVENT_LOCATION_COUNTRY', 
+      desc: 'The country of the location where the event takes place. Used to set the "Country:" field of the event record.'
+    }, 
+    {
+      name: 'EVENT_LOCATION_COUNTY', 
+      desc: 'The county of the location where the event takes place. Used to set the "[[T6:[[M0:friendraiser_admin:fr_location_details_county_label]]]]" field of the event record.'
+    }, 
+    {
+      name: 'EVENT_LOCATION_REGION', 
+      desc: 'The region of the location where the event takes place. Used to set the "Region:" field of the event record.'
+    }, 
+    {
+      name: 'EVENT_LOCATION_AREA', 
+      desc: 'The area of the location where the event takes place. Used to set the "[[T6:[[M0:friendraiser_admin:fr_location_details_area_label]]]]" field of the event record.'
+    }, 
+    {
+      name: 'EVENT_LOCAL_OFFICE_ATTN', 
+      desc: 'To whom mail to the local office should be addressed.'
+    }, 
+    {
+      name: 'EVENT_LOCAL_OFFICE_STREET1', 
+      desc: 'First street line of the local office mailing address.'
+    }, 
+    {
+      name: 'EVENT_LOCAL_OFFICE_STREET2', 
+      desc: 'Second street line of the local office mailing address.'
+    }, 
+    {
+      name: 'EVENT_LOCAL_OFFICE_CITY', 
+      desc: 'City for the local office mailing address.'
+    }, 
+    {
+      name: 'EVENT_LOCAL_OFFICE_STATE', 
+      desc: 'State for the local office mailing address.'
+    }, 
+    {
+      name: 'EVENT_LOCAL_OFFICE_ZIP', 
+      desc: 'ZIP code for the local office mailing address.'
+    }, 
+    {
+      name: 'EVENT_SCHEDULE', 
+      desc: 'The schedule of the TeamRaiser. Used in the page customization as the "Event Schedule:" field.'
+    }, 
+    {
+      name: 'FUNDRAISING_CAMPAIGN', 
+      desc: 'A fundraising donation campaign to associate with the event.', 
+      validationDesc: 'Must match the id number of an existing fundraising donation campaign'
+    }, 
+    {
+      name: 'FUNDRAISING_FORM', 
+      desc: 'A fundraising donation form to associate with the event. If you specify a Donation2 campaign, you must also specify a donation form.', 
+      validationDesc: 'Must match the id number of an existing donation form that exists in the Donation2 campaign.'
+    }, 
+    {
+      name: 'EVENT_CATEGORY', 
+      desc: 'The security category of the event.', 
+      validationDesc: 'Must match the name of a security category.'
+    }, 
+    {
+      name: 'EVENT_INTEREST', 
+      desc: 'An interest category to associate with the event.', 
+      validationDesc: 'Must match the id number or name of an existing interest category'
+    }, 
+    {
+      name: 'MAP_LINK', 
+      desc: 'A web address (URL) of a map to the TeamRaiser. Used in the page customization as the "Link to Event Directions:" field.', 
+      validationDesc: 'Any text is allowed, but the resulting link will not work if this is not a valid URL'
+    }, 
+    {
+      name: 'COORDINATOR_NAME', 
+      desc: 'The name of the TeamRaiser coordinator. Used in the page customization as the "Event Coordinator Name:" field.'
+    }, 
+    {
+      name: 'COORDINATOR_PHONE', 
+      desc: 'The phone number of the TeamRaiser coordinator. Used in the page customization as the "Event Coordinator Phone:" field.'
+    }, 
+    {
+      name: 'COORDINATOR_EMAIL', 
+      desc: 'The email address of the TeamRaiser coordinator. Used in the page customization as the "Event Coordinator Email:" field.'
+    }, 
+    {
+      name: 'SPONSOR_1', 
+      desc: 'The first name or image filename for a sponsor of the TeamRaiser. Used in the page customization as the "Sponsor name or image filename (1):" field.'
+    }, 
+    {
+      name: 'SPONSOR_2', 
+      desc: 'The second name or image filename for a sponsor of the TeamRaiser. Used in the page customization as the "Sponsor name or image filename (2):" field.'
+    }, 
+    {
+      name: 'SPONSOR_3', 
+      desc: 'The third name or image filename for a sponsor of the TeamRaiser. Used in the page customization as the "Sponsor name or image filename (3):" field.'
+    }, 
+    {
+      name: 'SPONSOR_4', 
+      desc: 'The fourth name or image filename for a sponsor of the TeamRaiser. Used in the page customization as the "Sponsor name or image filename (4):" field.'
+    }, 
+    {
+      name: 'SPONSOR_5', 
+      desc: 'The fifth name or image filename for a sponsor of the TeamRaiser. Used in the page customization as the "Sponsor name or image filename (5):" field.'
+    }, 
+    {
+      name: 'PREV_FR_ID', 
+      desc: 'The id or name of the old TeamRaiser event we wish to associate this new TeamRaiser with.', 
+      validationDesc: 'Valid fr_id or name of a previous TeamRaiser.'
+    }, 
+    {
+      name: 'CLASSIFICATION_ID', 
+      desc: 'The ID or the name of the type for this TeamRaiser.', 
+      validationDesc: 'Valid ID for this type or name.'
+    }, 
+    {
+      name: 'CLASSIFICATION_ID2', 
+      desc: 'The ID or the name of the type for this TeamRaiser.', 
+      validationDesc: 'Valid ID for this type or name.'
+    }, 
+    {
+      name: 'FISCAL_YEAR', 
+      desc: 'The fiscal year for this TeamRaiser.', 
+      validationDesc: 'Valid 4 digit year.'
+    }[[?xTRUEx::x[[S10:MULTIPLE_LOCALE_INSTALLED]]x::, 
+    {
+      name: 'LOCALE', 
+      desc: 'The locale of this TeamRaiser event.', 
+      validationDesc: 'A valid locale identifier consisting of the language abbreviation and the country code, such as en_US or fr_CA.'
+    }::]][[?xTRUEx::x[[S0:F2F_PUBLIC_EVENT_TYPES_ENABLED]]x::, 
+    {
+      name: 'PUBLIC_EVENT_TYPE', 
+      desc: 'The ID or name of the public event type for this TeamRaiser.', 
+      validationDesc: 'The ID or name for a valid public event type.'
+    }::]], 
+    {
+      name: 'LEAD_FR_ID', 
+      desc: 'The ID of the lead event', 
+      validationDesc: 'Valid fr_id of an lead event.'
+    }, 
+    {
+      name: 'AFFILIATE_TYPE', 
+      desc: 'The type of event affiliation', 
+      validationDesc: '0 = opt-out, 1 = no event affiliation, 2 = child, 3 = parent.'
+    }, 
+    {
+      name: 'EVENT_STATUS', 
+      desc: 'The status of the event.', 
+      validationDesc: '0 = Unpublished (default), 1 = Accepting Registrations Only, 2 = Accepting Registrations and Gifts, 3 = Accepting Gifts Only, 4 = Closed, 8 = Archived, 9 = Deleted.'
+    }
+  ], 
+  
+  /* list of valid columns */
+  validUploadColumns = [], 
+  
+  /* list of required columns */
+  requiredUploadColumns = {
+    create: [], 
+    existing: []
+  }, 
+  
+  /* read the upload file and display a preview */
+  readUploadFile = function() {
+    eventUploadXmlString = '';
+    
+    var uploadContainsErrors = false, 
+    uploadRowsInError = false;
+    
+    $('#upload-file-error').html('');
+    
+    var uploadFiles = document.getElementById('upload-file').files;
+    if(!uploadFiles.length) {
+      alert('Please select a file.');
+      return;
+    }
+    
+    var uploadFile = uploadFiles[0], 
+    uploadReader = new FileReader();
+    uploadReader.onloadend=  function(e) {
+      if(e.target.readyState == FileReader.DONE) {
+        var uploadFileExtension = uploadFile.name.split('.')[uploadFile.name.split('.').length - 1].toLowerCase();
+        if(uploadFileExtension != 'csv') {
+          alert('Invalid file - "' + uploadFile.name + '". The file must be a comma-separated values (CSV) file. Please try again.');
+        }
+        else {
+          $('#preview-table tr').remove();
+          $('#event-upload-preview').show();
+          
+          var uploadRows = csvToArray(e.target.result);
+          
+          if(uploadRows.length > 1001) {
+            $('#upload-file-error').append('<p>The upload file includes ' + (uploadRows.length - 1) + ' events. Only 1000 events can be uploaded at a time. All additional events in your file will be ignored.</p>');
+          }
+          
+          var uploadColumnHeaders = uploadRows[0], 
+          invalidColumnHeaders = [], 
+          requiredColumnHeadersNotIncluded = [], 
+          uniqueColumnHeaders = [], 
+          duplicateColumnHeaders = [];
+          $('#preview-table thead').append('<tr>' + 
+                                             '<th></th>' + 
+                                           '</tr>');
+          $.each(uploadColumnHeaders, function() {
+            var uploadColumnHeader = '' + this;
+            if(!uploadColumnHeader.charAt(uploadColumnHeader.length - 1).match(/^[a-zA-Z0-9]+$/)) {
+              uploadColumnHeader = uploadColumnHeader.substr(0, uploadColumnHeader.length - 1);
+            }
+            if(uploadColumnHeader != '') {
+              if($.inArray(uploadColumnHeader, uniqueColumnHeaders) > -1) {
+                duplicateColumnHeaders.push(uploadColumnHeader);
+              }
+              else {
+                uniqueColumnHeaders.push(uploadColumnHeader);
+                if($.inArray(uploadColumnHeader, validUploadColumns) == -1) {
+                  invalidColumnHeaders.push(uploadColumnHeader);
+                }
+              }
+              $('#preview-table thead tr').append('<th>' + uploadColumnHeader + '</th>');
+            }
+          });
+          
+          $.each($('#create-or-update').val() == 'add' ? requiredUploadColumns.create : requiredUploadColumns.existing, function () {
+            var requiredUploadColumn = '' + this;
+            if($.inArray(requiredUploadColumn, uploadColumnHeaders) == -1) {
+              requiredColumnHeadersNotIncluded.push(requiredUploadColumn);
+            }
+          });
+          
+          if(requiredColumnHeadersNotIncluded.length > 0) {
+            uploadContainsErrors = true;
+            $('#upload-file-error').append('<p>The upload file is missing the following required columns. Please correct and upload your file again.</p>');
+            var missingHeaders = '';
+            $.each(requiredColumnHeadersNotIncluded, function() {
+              if(missingHeaders != '') {
+                missingHeaders += ', ';
+              }
+              missingHeaders += this;
+            });
+            $('#upload-file-error').append('<p>' + missingHeaders + '</p>');
+          }
+          
+          if(invalidColumnHeaders.length > 0) {
+            $('#upload-file-error').append('<p>The upload file contains the following column headers which are not supported. These columns will be ignored.</p>');
+            var invalidHeaderText = '';
+            $.each(invalidColumnHeaders, function() {
+              var invalidColumnHeader = '' + this;
+              if(invalidHeaderText != '') {
+                invalidHeaderText += ', ';
+              }
+              invalidHeaderText += invalidColumnHeader;
+            });
+            $('#upload-file-error').append('<p>' + invalidHeaderText + '</p>');
+          }
+          
+          $.each(uploadRows, function(rowIndex) {
+            if(rowIndex > 0 && rowIndex < 1001) {
+              var uploadRowColumns = this;
+              if(uploadRowColumns.length == uploadColumnHeaders.length) {
+                eventUploadXmlString += $('#create-or-update').val() == 'add' ? '<teamraiserCreate>' : '<teamraiserUpdate>';
+                var tableRowCellsStr = '', 
+                errorText = '';
+                $.each(uploadRowColumns, function(columnIndex) {
+                  var uploadRowColumn = '' + this;
+                  
+                  /* handle ZIP Codes that might've been incorrectly reformatted by Excel */
+                  if((uploadColumnHeaders[columnIndex] == 'EVENT_LOCATION_ZIP' || 
+                      uploadColumnHeaders[columnIndex] == 'EVENT_LOCAL_OFFICE_ZIP') && 
+                     uploadRowColumn != '') {
+                    while(uploadRowColumn.length < 5) {
+                      uploadRowColumn = '0' + uploadRowColumn;
+                    }
+                  }
+                  
+                  if($.inArray(uploadColumnHeaders[columnIndex], validUploadColumns) > -1) {
+                    var thisNodeNameParts = uploadColumnHeaders[columnIndex].split('_'), 
+                    thisNodeName = thisNodeNameParts[0].toLowerCase();
+                    $.each(thisNodeNameParts, function(partIndex) {
+                      if(partIndex > 0) {
+                        var thisNodeNamePart = '' + this;
+                        thisNodeName += thisNodeNamePart.charAt(0) + thisNodeNamePart.slice(1).toLowerCase();
+                      }
+                    });
+                    eventUploadXmlString += '<' + thisNodeName + '>' + 
+                                              uploadRowColumn + 
+                                            '</' + thisNodeName + '>';
+                  }
+                  if($.inArray(uploadColumnHeaders[columnIndex], 
+                               $('#create-or-update').val() == 'add' ? requiredUploadColumns.create : requiredUploadColumns.existing) > -1 && 
+                     uploadRowColumn == '') {
+                    uploadContainsErrors = true;
+                    uploadRowsInError = true;
+                    if(errorText != '') {
+                      errorText += '<br />';
+                    }
+                    errorText += '<span class="ErrorMessage"><img alt="" src="../images/error.gif" /> "' + uploadColumnHeaders[columnIndex] + '" is required.</span>';
+                  }
+                  tableRowCellsStr += '<td>' + 
+                                        uploadRowColumn + 
+                                      '</td>';
+                });
+                eventUploadXmlString += $('#create-or-update').val() == 'add' ? '</teamraiserCreate>' : '</teamraiserUpdate>';
+                if(errorText != '' && $('#has-errors').length == 0) {
+                  $('#upload-file-error').append('<p id="has-errors">One or more of the rows in the upload file contains an error. Please correct and upload your file again.</p>');
+                }
+                tableRowCellsStr = '<td>' + 
+                                     errorText + 
+                                   '</td>' + 
+                                   tableRowCellsStr;
+                $('#preview-table tbody').append('<tr valign="top">' + 
+                                                   tableRowCellsStr + 
+                                                 '</tr>');
+              }
+            }
+          });
+          
+          if($('#preview-table .ErrorMessage').length == 0) {
+            $('#preview-table th:first-child, #preview-table td:first-child').remove();
+          }
+        }
+      }
+    };
+    uploadReader.readAsText(uploadFile);
+  }, 
+  
+  /* reset the upload data and preview */
+  resetUpload = function() {
+    uploadContainsErrors = false;
+    uploadRowsInError = false;
+    $('.formError').html('');
+    eventUploadXmlString = '';
+    $('#event-upload-preview').hide();
+    $('#preview-table tr').remove();
+  }, 
+  
+  /* make a request to SRTeamraiserAPI */
+  callTeamraiserApi = function(options) {
+    var settings = $.extend({
+      callback: $.noop
+    }, options || {});
+    
+    /* use native JS instead of jQuery.ajax() to avoid issues with custom secure hostnames */
+    var xhr = new XMLHttpRequest();
+    xhr.onreadystatechange = function() {
+      if(this.readyState === 4) {
+        settings.callback(JSON.parse(this.responseText));
+      }
+    };
+    xhr.open('POST', 'https://[[S29:SECURE_DOMAIN]][[S29:SECURE_PATH]]SRTeamraiserAPI', true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.send('api_key=[[S0:CONVIO_API_KEY]]&v=1.0&response_format=json&suppress_response_codes=true' + 
+             '&login_name=' + apiUserName + '&login_password=' + apiPassword + 
+             (settings.data ? ('&' + settings.data) : ''));
+  }, 
+  
+  /* call the API to create or update the TeamRaisers */
+  processUploadFile = function() {
+    var formError = false;
+    $('.formError').html('');
+    if($('#create-or-update').val() == 'add' && 
+       $('#base-fr-id').val() == '') {
+      formError = true;
+      $('#base-fr-id-error').html('<p>Please enter the fr_id of the blueprint you wish to copy.</p>');
+    }
+    if($('#create-or-update').val() == 'add' && 
+       !$('#create-as-blueprint').is(':checked') && 
+       !$('#create-as-child').is(':checked')) {
+      formError = true;
+      $('#create-as-error').html('<p>Please make a selection.</p>');
+    }
+    if(!formError && !uploadContainsErrors) {
+      var uploadXmlString = '<' + $('#create-or-update').val() + 'TeamraiserRequest xmlns="http://convio.com/crm/v1.0">' + 
+                              ($('#create-or-update').val() == 'add' ? ('<baseFrId>' + $('#base-fr-id').val() + '</baseFrId>' + 
+                              '<createAsBlueprint>' + $('#create-as-blueprint').is(':checked') + '</createAsBlueprint>' + 
+                              '<createAsChild>' + $('#create-as-child').is(':checked') + '</createAsChild>') : '') + 
+                              eventUploadXmlString + 
+                            '</' + $('#create-or-update').val() + 'TeamraiserRequest>';
+      $('#event-upload-container').hide();
+      $('#event-upload-loading').show();
+      callTeamraiserApi({
+        data: 'method=' + $('#create-or-update').val() + 'TeamraiserData' + 
+              '&' + $('#create-or-update').val() + '_teamraiser=' + escape(uploadXmlString), 
+        callback: function(uploadResponse) {
+          $('#event-upload-loading, #event-upload-success, #event-upload-error, #event-upload-pending, #job-result-container').hide();
+          $('#event-upload-complete').show();
+          if(uploadResponse.errorResponse) {
+            var uploadError = uploadResponse.errorResponse.message;
+            if(uploadError.indexOf('The base event must be a Blueprint') != -1 || 
+               uploadError.indexOf('The base teamraiser event specified does not exist') != -1) {
+              uploadError = 'The fr_id provided is not a valid blueprint TeamRaiser\'s ID. Please check the ID and try again.';
+            }
+            else if(uploadError.indexOf(' Record number') != -1) {
+              uploadError = uploadError.split(' Record number')[0];
+            }
+            $('#event-upload-error').html('<p>' + uploadError + '</p>')
+                                    .show();
+          }
+          else {
+            var jobId = uploadResponse[$('#create-or-update').val() + 'TeamraiserResponse'].jobId;
+            $('#progress-job-id').val(jobId);
+            $('#success-job-id').html(jobId);
+            $('#event-upload-success').show();
+            getJobProgress(true);
+          }
+        }
+      });
+    }
+    else if(formError) {
+      $('#form-is-error').html('<p>There was a problem processing your request. Please see below.</p>');
+      window.scrollTo(0, 0);
+    }
+  }, 
+  
+  /* get the progress for the upload job */
+  getJobProgress = function(shouldRefresh) {
+    if(shouldRefresh) {
+      numRetries++;
+    }
+    var jobId = $('#progress-job-id').val();
+    $('#progress-job-id-error').html('');
+    if(jobId == '') {
+      $('#progress-job-id-error').html('<p>Please enter an upload ID.</p>');
+    }
+    else {
+      if(!shouldRefresh) {
+        $('#event-upload-success, #event-upload-error, #event-upload-pending, #job-error, #job-success').hide();
+        $('#job-error-table tbody tr, #job-success-table tbody tr').remove();
+      }
+      else {
+        $('#job-error, #job-success').hide();
+        $('#job-error-table tbody tr, #job-success-table tbody tr').remove();
+      }
+      callTeamraiserApi({
+        data: 'method=getTeamraiserResultsData&job_id=' + jobId, 
+        callback: function(jobProgressResponse) {
+          if(jobProgressResponse.errorResponse && !shouldRefresh) {
+            $('#progress-job-id-error').html('<p>' + jobProgressResponse.errorResponse.message.replace('Job ID', 'Upload ID') + '</p>');
+            $('#event-upload-container').show();
+          }
+          else if(jobProgressResponse.errorResponse && shouldRefresh && numRetries <= 15) {
+            var getRefreshedJobProgress = function() {
+              getJobProgress(true);
+            }, 
+            t = setTimeout(getRefreshedJobProgress, 2000);
+            progressTimers.push(t);
+          }
+          else if(jobProgressResponse.errorResponse && shouldRefresh && numRetries > 15) {
+            clearProgressTimers();
+            numRetries = 0;
+            $('#pending-job-id').html(jobId);
+            $('#event-upload-success').hide();
+            $('#event-upload-pending').show();
+          }
+          else if(jobProgressResponse.getTeamraiserCreateUpdateResponse.completed == 'true') {
+            clearProgressTimers();
+            numRetries = 0;
+            var jobResults = jobProgressResponse.getTeamraiserCreateUpdateResponse.jobResult;
+            if(!$.isArray(jobResults)) {
+              jobResults = [jobResults];
+            }
+            $.each(jobResults, function(jobResultIndex) {
+              if(this.success == 'true') {
+                $('#job-success-table tbody').append('<tr>' + 
+                                                       '<td>' + (jobResultIndex + 1) + '</td>' + 
+                                                       '<td>' + this.eventTitle + '</td>' + 
+                                                       '<td>' + this.frId + '</td>' + 
+                                                       '<td></td>' + 
+                                                     '</tr>');
+                if(this.errors.createUpdateError) {
+                  var eventErrors = this.errors.createUpdateError;
+                  if(!$.isArray(eventErrors)) {
+                    eventErrors = [eventErrors];
+                  }
+                  $.each(eventErrors, function() {
+                    $('#job-success-table tbody tr:last td:last').html('<div class="ErrorMessage">' + 
+                                                                         this.error.replace('Warning: ', '') + 
+                                                                       '</div>');
+                  });
+                }
+                $('#job-success').show();
+              }
+              else {
+                $('#job-error-table tbody').append('<tr>' + 
+                                                     '<td>' + (jobResultIndex + 1) + '</td>' + 
+                                                     '<td></td>' + 
+                                                   '</tr>');
+                if(this.errors.createUpdateError) {
+                  var eventErrors = this.errors.createUpdateError;
+                  if(!$.isArray(eventErrors)) {
+                    eventErrors = [eventErrors];
+                  }
+                  $.each(eventErrors, function() {
+                    $('#job-error-table tbody tr:last td:last').html('<div class="ErrorMessage">' + 
+                                                                       this.error.replace('Warning: ', '') + 
+                                                                     '</div>');
+                  });
+                }
+                $('#job-error').show();
+              }
+            });
+            $('#event-upload-container, #event-upload-success').hide();
+            $('#event-upload-complete, #job-result-container').show();
+          }
+        }
+      });
+    }
+  }, 
+  
+  /* clear all progress timers */
+  clearProgressTimers = function() {
+    for(var i = 0; i < progressTimers.length; i++) {
+      clearTimeout(progressTimers[i]);
+    }
+    progressTimers = [];
+  };
+  
+  $(function() {
+    /* check for File API support */
+    if(typeof window.FileReader !== 'function') {
+      $('#event-upload-container').html('This page utilizes the HTML5 File API. Your browser does not currently support this functionality. Please use a browser such as IE10+, Firefox 3.6+, or Google Chrome 6+.');
+    }
+    
+    /* update the page headline */
+    $('#PageTitle').html('TeamRaiser Event Upload')
+                   .css('visibility', 'visible');
+    
+    /* show or hide the blueprint */
+    $('#create-or-update').change(function() {
+      if($(this).val() == 'add') {
+        $('#event-upload-blueprint, #event-upload-creation-method, #required-columns-new').show();
+        $('#required-columns-existing').hide();
+      }
+      else {
+        $('#event-upload-blueprint, #event-upload-creation-method, #required-columns-new').hide();
+        $('#required-columns-existing').show();
+      }
+      resetUpload();
+    });
+    
+    /* show or hide the list of valid columns */
+    $('#show-column-list').click(function(e) {
+      preventDefaultNormalized(e);
+      $('#show-column-list').closest('p').hide();
+      $('#column-list-container').show();
+    });
+    $('#hide-column-list').click(function(e) {
+      preventDefaultNormalized(e);
+      $('#show-column-list').closest('p').show();
+      $('#column-list-container').hide();
+    });
+    
+    $.each(uploadColumns, function() {
+      /* add a row to the column list */
+      $('#column-list-table tbody').append('<tr valign="top">' + 
+                                             '<td>' + this.name + '</td>' + 
+                                             '<td>' + this.desc + '</td>' + 
+                                             '<td>' + (this.validationDesc || 'Any text') + '</td>' + 
+                                           '</tr>');
+      
+      validUploadColumns.push(this.name);
+      
+      if(this.requiredNew) {
+        requiredUploadColumns.create.push(this.name);
+      }
+      if(this.requiredExisting) {
+        requiredUploadColumns.existing.push(this.name);
+      }
+    });
+    
+    /* read the selected file when the "Upload" button is clicked */
+    $('#read-file').click(readUploadFile);
+    
+    /* process the upload when the "Process" button is clicked */
+    $('#process-upload').click(processUploadFile);
+    
+    /* reset and hide the upload preview when the "Reset" button is clicked */
+    $('#reset-upload').click(resetUpload);
+    
+    /* check the job's progress when the "Check Progress" button is clicked */
+    $('#check-upload-progress').click(function() {
+      getJobProgress();
+    });
+    
+    /* return to the upload form when the "Back" button is clicked */
+    $('#back-to-upload').click(function() {
+      clearProgressTimers();
+      $('#event-upload-complete').hide();
+      $('#event-upload-container').show();
+    });
+  });
+})(jQuery);
+</script>
+
+<style>
+#PageTitle {
+  visibility: hidden;
+}
+h2 {
+  font-size: 16px;
+}
+#event-upload-progress {
+  float: right;
+  width: 275px;
+  padding: 0 12px;
+  margin: 0 0 20px 20px;
+  background: #f0f0f0;
+  border: 1px solid #c4c4c4;
+}
+#progress-job-id {
+  width: 100px;
+}
+#required-columns-existing {
+  display: none;
+}
+#column-list-container {
+  display: none;
+}
+.upload-data-table th {
+  background: #c4c4c4;
+  padding: 3px;
+  border-top: 1px solid #000000;
+  border-left: 1px solid #000000;
+}
+.upload-data-table td {
+  padding: 3px;
+  border-top: 1px solid #000000;
+  border-left: 1px solid #000000;
+}
+.upload-data-table th:last-child, 
+.upload-data-table td:last-child {
+  border-right: 1px solid #000000;
+}
+.upload-data-table tr:last-child td {
+  border-bottom: 1px solid #000000;
+}
+#column-list-table {
+  max-width: 1400px;
+}
+#event-upload-preview {
+  display: none;
+  margin: 5px 0;
+}
+#preview-table-container {
+  max-width: 1400px;
+  overflow: auto;
+}
+#event-upload-loading {
+  display: none;
+}
+#event-upload-complete {
+  display: none;
+}
+#event-upload-error {
+  display: none;
+}
+#event-upload-success {
+  display: none;
+}
+#event-upload-pending {
+  display: none;
+}
+#job-result-container {
+  display: none;
+}
+#job-error {
+  display: none;
+}
+#job-success {
+  display: none;
+}
+</style>
+
+<div id="event-upload-container">
+  <div id="event-upload-progress">
+    <h2>Check on a Previous Upload</h2>
+    <p>Enter an upload ID to check on a previous upload's progress.</p>
+    <div id="progress-job-id-error" class="ErrorMessage"></div>
+    <p><input id="progress-job-id"> <button id="check-upload-progress">Check Progress</button></p>
+  </div>
+  
+  <div id="form-is-error" class="ErrorMessage formError"></div>
+  
+  <h2>Create or Update TeamRaisers</h2>
+  <p>Would you like to create new TeamRaisers, or update existing TeamRaisers?</p>
+  <select id="create-or-update">
+    <option value="add" selected>Create New TeamRaisers</option>
+    <option value="update">Update Existing TeamRaisers</option>
+  </select>
+  
+  <div id="event-upload-blueprint">
+    <h2>Select Blueprint</h2>
+    <p>Enter the fr_id of the TeamRaiser blueprint you would like to use as a model for the new TeamRaisers.</p>
+    <div id="base-fr-id-error" class="ErrorMessage formError"></div>
+    <p><input id="base-fr-id"></p>
+  </div>
+  
+  <div id="event-upload-creation-method">
+    <h2>Creation Method</h2>
+    <p>Select the method you would like to use for the creation of new TeamRaisers. If you select to "Create as blueprints", the TeamRaisers created will be blueprints. If you select "Create as children", the TeamRaisers created will have their parent event set to the blueprint selected above. If you select both, TeamRaisers created will be blueprints and have their parent event set to the blueprint selected above.</p>
+    <div id="create-as-error" class="ErrorMessage formError"></div>
+    <p><input type="checkbox" id="create-as-blueprint"> <label for="create-as-blueprint">Create as blueprints</label><br>
+    <input type="checkbox" id="create-as-child"> <label for="create-as-child">Create as children</label></p>
+  </div>
+  
+  <h2>Upload File</h2>
+  <p>Click "Browse" to locate the data file on your local computer or shared network resource then click "Upload" to continue. The file must be a comma-separated values (CSV) file. The file can include at most 1,000 events. Each row of your file must include a minimum of <span id="required-columns-new">EVENT_TITLE, EVENT_DATE_MONTH, EVENT_DATE_DAY, and EVENT_DATE_YEAR</span><span id="required-columns-existing">FR_ID</span>.</p>
+  
+  <p><a id="show-column-list" href="[[S8]]#">Show the list of valid columns</a>.</p>
+  <div id="column-list-container">
+    <p><a id="hide-column-list" href="[[S8]]#">Hide the list of valid columns</a>.</p>
+    
+    <table class="upload-data-table" id="column-list-table" cellspacing="0" cellpadding="0">
+      <thead>
+        <tr valign="top">
+          <th>Column Name</th>
+          <th>Description</th>
+          <th>Validation Description</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  
+  <p><input type="file" id="upload-file"> <button id="read-file">Upload</button></p>
+  
+  <div id="event-upload-preview">
+    <h2>Preview</h2>
+    <p>Below is a preview of your file. Please review and click "Process" to complete the upload.</p>
+    <div id="upload-file-error" class="ErrorMessage"></div>
+    <div id="preview-table-container">
+      <table id="preview-table" class="upload-data-table" cellspacing="0" cellpadding="0">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p><button id="process-upload">Process</button> <button id="reset-upload">Reset</button></p>
+  </div>
+</div>
+
+<div id="event-upload-loading">
+  <p><img alt="" src="../images/indicator.gif" /> Loading, please wait ...</p>
+</div>
+
+<div id="event-upload-complete">
+  <div class="ErrorMessage" id="event-upload-error"></div>
+  <div id="event-upload-success">
+    <p><img alt="" src="../images/indicator.gif" /> Your upload is being processed. Please wait ...</p>
+    <p>You may leave this page and check on your upload's progress later, using the upload ID <span id="success-job-id"></span>.</p>
+  </div>
+  <div id="event-upload-pending">
+    <p>Your upload is not yet complete. Please check back at a later time, using the upload ID <span id="pending-job-id"></span>.</p>
+  </div>
+  <div id="job-result-container">
+    <div id="job-error">
+      <p>The following TeamRaisers could not be created or updated due to one or more errors.</p>
+      <table class="upload-data-table" id="job-error-table" cellspacing="0" cellpadding="0">
+        <thead>
+          <tr>
+            <th>Row Number</th>
+            <th>Errors</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="job-success">
+      <p>The following TeamRaisers were successfully created or updated.</p>
+      <table class="upload-data-table" id="job-success-table" cellspacing="0" cellpadding="0">
+        <thead>
+          <tr>
+            <th>Row Number</th>
+            <th>Event Title</th>
+            <th>TeamRaiser ID</th>
+            <th>Errors</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <p><button id="back-to-upload">Back</button></p>
+</div>
