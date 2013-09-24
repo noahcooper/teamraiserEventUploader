@@ -1,7 +1,7 @@
-<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js" ></script>
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
 <script>
 /*
- * Version: 1.0 (28-JUN-2013)
+ * Version: 1.2 (24-SEP-2013)
  */
 
 /* the API username and password for the organization */
@@ -285,7 +285,7 @@ $.noConflict();
     
     var uploadFile = uploadFiles[0], 
     uploadReader = new FileReader();
-    uploadReader.onloadend=  function(e) {
+    uploadReader.onloadend = function(e) {
       if(e.target.readyState == FileReader.DONE) {
         var uploadFileExtension = uploadFile.name.split('.')[uploadFile.name.split('.').length - 1].toLowerCase();
         if(uploadFileExtension != 'csv') {
@@ -487,7 +487,7 @@ $.noConflict();
       $('#event-upload-loading').show();
       callTeamraiserApi({
         data: 'method=' + $('#create-or-update').val() + 'TeamraiserData' + 
-              '&' + $('#create-or-update').val() + '_teamraiser=' + escape(uploadXmlString), 
+              '&' + $('#create-or-update').val() + '_teamraiser=' + encodeURIComponent(uploadXmlString), 
         callback: function(uploadResponse) {
           $('#event-upload-loading, #event-upload-success, #event-upload-error, #event-upload-pending, #job-result-container').hide();
           $('#event-upload-complete').show();
@@ -625,7 +625,7 @@ $.noConflict();
   $(function() {
     /* check for File API support */
     if(typeof window.FileReader !== 'function') {
-      $('#event-upload-container').html('This page utilizes the HTML5 File API. Your browser does not currently support this functionality. Please use a browser such as IE10+, Firefox 3.6+, or Google Chrome 6+.');
+      $('#event-upload-container').html('This page utilizes the HTML5 File API. Your browser does not support this functionality. Please use a browser such as IE10+, Firefox 3.6+, or Google Chrome 6+.');
     }
     
     /* update the page headline */
@@ -686,7 +686,7 @@ $.noConflict();
     
     /* check the job's progress when the "Check Progress" button is clicked */
     $('#check-upload-progress').click(function() {
-      getJobProgress();
+      getJobProgress(false);
     });
     
     /* return to the upload form when the "Back" button is clicked */
@@ -700,6 +700,18 @@ $.noConflict();
 </script>
 
 <style>
+#required-columns-existing, 
+#column-list-container, 
+#event-upload-loading, 
+#event-upload-complete, 
+#event-upload-error, 
+#event-upload-success, 
+#event-upload-pending, 
+#job-result-container, 
+#job-error, 
+#job-success {
+  display: none;
+}
 #PageTitle {
   visibility: hidden;
 }
@@ -717,18 +729,10 @@ h2 {
 #progress-job-id {
   width: 100px;
 }
-#required-columns-existing {
-  display: none;
-}
-#column-list-container {
-  display: none;
-}
 .upload-data-table th {
   background: #c4c4c4;
-  padding: 3px;
-  border-top: 1px solid #000000;
-  border-left: 1px solid #000000;
 }
+.upload-data-table th, 
 .upload-data-table td {
   padding: 3px;
   border-top: 1px solid #000000;
@@ -751,30 +755,6 @@ h2 {
 #preview-table-container {
   max-width: 1400px;
   overflow: auto;
-}
-#event-upload-loading {
-  display: none;
-}
-#event-upload-complete {
-  display: none;
-}
-#event-upload-error {
-  display: none;
-}
-#event-upload-success {
-  display: none;
-}
-#event-upload-pending {
-  display: none;
-}
-#job-result-container {
-  display: none;
-}
-#job-error {
-  display: none;
-}
-#job-success {
-  display: none;
 }
 </style>
 
