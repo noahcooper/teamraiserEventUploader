@@ -1,7 +1,7 @@
 TeamRaiser Event Uploader
 =========================
 
-Version: 1.2 (24-SEP-2013)
+Version: 1.3 (26-JAN-2016)
 
 The TeamRaiser Event Uploader is a tool which to allows organizations to create [TeamRaiser](https://www.blackbaud.com/online-marketing/teamraiser-event-fundraising) events en masse using a simple CSV-based import. It uses the [HTML5 File API](http://www.w3.org/TR/FileAPI/) and the [Luminate Online REST API](http://open.convio.com/api), and can be used to create new events or to update existing events.
 
