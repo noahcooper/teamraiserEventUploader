@@ -1,7 +1,7 @@
 <script src="//code.jquery.com/jquery-2.2.3.js"></script>
 <script>
   /*
-   * Version: 1.4 (20-APR-2016)
+   * Version: 1.5 (28-NOV-2017)
    */
   
   /* the API username and password for the organization */
@@ -155,6 +155,10 @@
         name: 'FUNDRAISING_FORM', 
         desc: 'A fundraising donation form to associate with the event. If you specify a Donation2 campaign, you must also specify a donation form.', 
         validationDesc: 'Must match the id number of an existing donation form that exists in the Donation2 campaign.'
+      }, 
+      {
+        name: 'FUNDRAISING_GOAL', 
+        desc: 'The financial goal for the event.'
       }, 
       {
         name: 'EVENT_CATEGORY', 
